@@ -1,15 +1,22 @@
+use std::ops::BitXor;
+
 #[derive(PartialEq, Clone, Copy)]
 pub struct HashId(pub [u32; 8]);
-impl HashId {
-    pub fn xor(&self, other: &HashId) -> [u32; 8] {
+
+impl BitXor for HashId {
+    type Output = [u32; 8];
+    fn bitxor(self, rhs: Self) -> Self::Output {
         let mut xor: [u32; 8] = [0; 8];
         for chunk in 0..8 {
-            xor[chunk] = self.0[chunk] ^ other.0[chunk];
+            xor[chunk] = self.0[chunk] ^ rhs.0[chunk];
         }
         xor
     }
+}
+
+impl HashId {
     pub fn leading_zeros(&self, other: &HashId) -> usize {
-        let xor = self.xor(other);
+        let xor = *self ^ *other;
         for chunk in 0..8 {
             match xor[chunk].leading_zeros() {
                 32 => continue, // all zeros, chunks are the same, continue
