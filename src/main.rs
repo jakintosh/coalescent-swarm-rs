@@ -1,15 +1,29 @@
-use identity::PeerInfo;
-use kademlia::DHT;
+#![allow(dead_code)]
+
+use crate::identity::PeerInfo;
+use crate::kademlia::DHT;
 
 mod hash_id;
 mod identity;
 mod kademlia;
 mod networking;
 
-fn main() {
+#[tokio::main]
+async fn main() {
+    // get identifying information
+    let identity = identity::Identity::generate_identity();
+    let public_address = networking::Interface::get_public_socket();
+
+    // get local peer info
     let peer_info = PeerInfo {
-        address: networking::Interface::get_public_socket(),
-        node_id: identity::Identity::generate_identity(),
+        address: public_address,
+        node_id: identity,
     };
-    let dht = DHT::new(20, peer_info);
+
+    // initialize the DHT
+    let _dht = DHT::new(20, peer_info);
+
+    // start running the IPC websocket server
+    let ipc_server = networking::WebsocketIPCServer::new();
+    ipc_server.start().await;
 }
