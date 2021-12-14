@@ -26,7 +26,7 @@ impl DHT {
     fn get_length_of_matching_prefix(&self, id_1: &HashId) -> u8 {
         self.my_peer_info.node_id.leading_zeros(&id_1) as u8
     }
-    fn get_k_bucket_for_id(&mut self, hash_id: &HashId) -> &mut Vec<PeerInfo> {
+    fn get_or_create_k_bucket_for_id(&mut self, hash_id: &HashId) -> &mut Vec<PeerInfo> {
         let matched_prefix_length = self.get_length_of_matching_prefix(hash_id);
         self.k_buckets
             .entry(matched_prefix_length)
@@ -34,7 +34,7 @@ impl DHT {
     }
     fn witness_peer(&mut self, peer_info: &PeerInfo) {
         let bucket_limit = self.bucket_limit as usize;
-        let k_bucket = self.get_k_bucket_for_id(&peer_info.node_id);
+        let k_bucket = self.get_or_create_k_bucket_for_id(&peer_info.node_id);
         match k_bucket.iter().position(|peer| peer == peer_info) {
             Some(index) => {
                 // move known node to most recently seen

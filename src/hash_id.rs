@@ -17,10 +17,10 @@ impl BitXor for HashId {
 impl HashId {
     pub fn leading_zeros(&self, other: &HashId) -> usize {
         let xor = *self ^ *other;
-        for chunk in 0..8 {
-            match xor[chunk].leading_zeros() {
+        for (i, chunk) in xor.iter().enumerate() {
+            match chunk.leading_zeros() {
                 32 => continue, // all zeros, chunks are the same, continue
-                num_zeros => return (chunk * 32) + num_zeros as usize,
+                num_zeros => return (i * 32) + num_zeros as usize,
             }
         }
         256 // all bits are equivalent
