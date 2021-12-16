@@ -1,5 +1,5 @@
 use futures::{future, SinkExt, StreamExt};
-use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use tokio::{
     net::{TcpListener, TcpSocket, TcpStream},
     sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
@@ -11,8 +11,14 @@ type RequestRx = UnboundedReceiver<RequestMessage>;
 
 pub struct Interface;
 impl Interface {
-    pub fn get_public_socket() -> SocketAddr {
-        SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 5000)
+    pub fn get_public_socket() -> Option<SocketAddr> {
+        None
+    }
+    pub fn get_local_ip_address() -> Option<IpAddr> {
+        match local_ip_address::local_ip() {
+            Ok(ip_address) => Some(ip_address),
+            Err(_) => None,
+        }
     }
 }
 
@@ -141,7 +147,6 @@ struct WebSocketConnection {
     websocket: WebSocketStream<TcpStream>,
     request_tx: RequestTx,
 }
-
 impl WebSocketConnection {
     async fn handle_connection(connection: WebSocketConnection) -> Result<(), ConnectionError> {
         // split in/out channels so we can move them separately
