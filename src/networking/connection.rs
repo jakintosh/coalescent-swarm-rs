@@ -6,10 +6,10 @@ use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 pub(crate) type MessageTx = UnboundedSender<(WireMessage, UnboundedSender<WireMessage>)>;
 pub(crate) type MessageRx = UnboundedReceiver<(WireMessage, UnboundedSender<WireMessage>)>;
 
-// =============== enum connection::Protocol ===============
+// ===== enum connection::Protocol ============================================
 ///
 /// Defines the implemented networking protocols that are available to use.
-
+///
 #[derive(Clone, Copy)]
 pub(crate) enum Protocol {
     WebSocket,
@@ -23,12 +23,12 @@ impl fmt::Display for Protocol {
     }
 }
 
-// =============== enum connection::WireMessage ===============
+// ===== enum connection::WireMessage =========================================
 ///
 /// This is the raw coalescent-computer message that we send across the wire.
 /// It will ultimately be wrapped by the protocol that transmits the message,
 /// but at the CC abstraction layer, this is as low as it gets.
-
+///
 pub(crate) enum WireMessage {
     Empty,
     Rpc,
@@ -36,15 +36,15 @@ pub(crate) enum WireMessage {
     Pong(Vec<u8>),
 }
 
-// ========= connection::Error enum ===========
-
+/// ===== enum connection::Error ===============================================
+///
 #[derive(Debug)]
 pub enum Error {
     ProtocolError,
 }
 
-// ========= connection::Connection struct ===========
-
+/// ===== struct connection::Connection ========================================
+///
 pub(crate) struct Connection<TMessage, TError, TSink, TStream>
 where
     TMessage: Into<WireMessage> + From<WireMessage>,
@@ -59,7 +59,7 @@ where
     pub message_tx: MessageTx,
 }
 
-/// ============ async fn handle_connection(connection: Connection) ============
+/// ===== async fn handle_connection(connection: Connection) ==================
 ///
 /// Takes ownership of a Connection struct and initiates tokio tasks to read
 /// and process messages from the stream, as well as send messages to the sink.
@@ -118,6 +118,12 @@ where
     Ok(())
 }
 
+/// ===== async fn handle_messages(message_rx: MessageRx) ==================
+///
+/// Takes ownership of a message receiver, and processes those messages as
+/// they come in. Can spawn a new work task based on the message, and can
+/// also potentially generate a response to return to the sender.
+///
 pub(crate) async fn handle_messages(mut message_rx: MessageRx) -> Result<(), Error> {
     while let Some(message) = message_rx.recv().await {
         let response = match message.0 {

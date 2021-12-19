@@ -1,3 +1,8 @@
+/// ===== networking::websocket.rs ============================================
+///
+/// This module implements a connection::Client and connection::Receiver for
+/// the WebSocket protocol. It uses the tungstenite library to implement the
+/// WebSocket protocol itself.
 use futures::{future, StreamExt};
 use std::net::SocketAddr;
 use tokio::{
@@ -8,39 +13,39 @@ use tokio_tungstenite::{client_async, tungstenite};
 
 use crate::networking::connection::{self, Connection, WireMessage};
 
-impl From<tokio_tungstenite::tungstenite::Error> for connection::Error {
-    fn from(_: tokio_tungstenite::tungstenite::Error) -> connection::Error {
+/// convert tungstenite websocket error to connection error
+impl From<tungstenite::Error> for connection::Error {
+    fn from(_: tungstenite::Error) -> connection::Error {
         connection::Error::ProtocolError
     }
 }
 
-/// Convert a
+/// Convert a wire message to a tungstenite websocket message
 impl From<WireMessage> for tungstenite::Message {
     fn from(_: WireMessage) -> Self {
         tungstenite::Message::Text(String::from("message"))
     }
 }
+
+/// Convert a tungstenite websocket message to a wire message
 impl From<tungstenite::Message> for WireMessage {
     fn from(message: tungstenite::Message) -> Self {
         match message {
             tungstenite::Message::Text(text) => {
                 println!("Received text: {}", text);
-                WireMessage::Empty
             }
             tungstenite::Message::Binary(_) => {
                 println!("Received some binary");
-                WireMessage::Empty
             }
-            tungstenite::Message::Ping(_) => WireMessage::Empty,
-            tungstenite::Message::Pong(_) => WireMessage::Empty,
-            tungstenite::Message::Close(_) => WireMessage::Empty,
+            _ => {}
         }
+        WireMessage::Empty
     }
 }
 
 pub struct Client;
 impl Client {
-    pub async fn connect_local(port: u16) -> Result<(), connection::Error> {
+    pub async fn connect_localhost(port: u16) -> Result<(), connection::Error> {
         let address = SocketAddr::from(([127, 0, 0, 1], port));
         Client::connect(address).await?;
         Ok(())
@@ -71,8 +76,10 @@ impl Client {
         };
         let connection_task = tokio::spawn(connection::handle_connection(connection));
         let receive_task = tokio::spawn(connection::handle_messages(message_rx));
-
-        future::select(receive_task, connection_task).await;
+        match futures::try_join!(receive_task, connection_task) {
+            Ok(_) => {}
+            Err(conn_error) => println!("websocket::Client::connect error {:?}", conn_error),
+        };
 
         Ok(())
     }
@@ -80,7 +87,7 @@ impl Client {
     fn get_ws_uri(address: SocketAddr) -> String {
         format!(
             "ws://{address}:{port}",
-            address = address.ip().to_string(),
+            address = address.ip(),
             port = address.port()
         )
     }
@@ -88,7 +95,7 @@ impl Client {
 
 pub struct Server;
 impl Server {
-    pub async fn listen_local(port: u16) -> Result<(), connection::Error> {
+    pub async fn listen_localhost(port: u16) -> Result<(), connection::Error> {
         let address = SocketAddr::from(([127, 0, 0, 1], port));
         Server::listen(address).await?;
         Ok(())
@@ -103,13 +110,13 @@ impl Server {
         // create channels to pass received messages
         let (message_tx, message_rx) = mpsc::unbounded_channel();
 
-        // create listening task
+        // create and join tasks
         let listen_task = tokio::spawn(Server::accept_connections(tcp_listener, message_tx));
-
-        // create receiving task
         let receive_task = tokio::spawn(connection::handle_messages(message_rx));
-
-        future::select(listen_task, receive_task).await;
+        match futures::try_join!(listen_task, receive_task) {
+            Ok(_) => {}
+            Err(conn_error) => println!("websocket::Server::listen error {:?}", conn_error),
+        };
 
         Ok(())
     }
@@ -117,7 +124,7 @@ impl Server {
     async fn accept_connections(
         tcp_listener: TcpListener,
         message_tx: connection::MessageTx,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<(), connection::Error> {
         // accept incoming connections until tcp listener closes
         while let Ok((tcp_stream, address)) = tcp_listener.accept().await {
             println!("Incoming TCP connection from: {}", address);
