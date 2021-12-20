@@ -1,4 +1,3 @@
-use core::fmt;
 use futures::{Sink, SinkExt, Stream, StreamExt};
 use std::net::SocketAddr;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
@@ -14,8 +13,8 @@ pub(crate) type MessageRx = UnboundedReceiver<(WireMessage, UnboundedSender<Wire
 pub(crate) enum Protocol {
     WebSocket,
 }
-impl fmt::Display for Protocol {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+impl core::fmt::Display for Protocol {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         let protocol_string = match self {
             Protocol::WebSocket => "ws://",
         };
@@ -31,7 +30,6 @@ impl fmt::Display for Protocol {
 ///
 pub(crate) enum WireMessage {
     Empty,
-    Rpc,
     Ping(Vec<u8>),
     Pong(Vec<u8>),
 }
@@ -127,10 +125,9 @@ where
 pub(crate) async fn handle_messages(mut message_rx: MessageRx) -> Result<(), Error> {
     while let Some(message) = message_rx.recv().await {
         let response = match message.0 {
-            WireMessage::Empty => None,
-            WireMessage::Rpc => None,
             WireMessage::Ping(bytes) => Some(WireMessage::Pong(bytes)),
             WireMessage::Pong(_) => None,
+            WireMessage::Empty => None,
         };
 
         // if response exists, pass back response, handle error

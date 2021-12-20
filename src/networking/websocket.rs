@@ -22,8 +22,12 @@ impl From<tungstenite::Error> for connection::Error {
 
 /// Convert a wire message to a tungstenite websocket message
 impl From<WireMessage> for tungstenite::Message {
-    fn from(_: WireMessage) -> Self {
-        tungstenite::Message::Text(String::from("message"))
+    fn from(wire_message: WireMessage) -> Self {
+        match wire_message {
+            WireMessage::Ping(bytes) => tungstenite::Message::Ping(bytes),
+            WireMessage::Pong(bytes) => tungstenite::Message::Pong(bytes),
+            _ => tungstenite::Message::Text(String::from("message")),
+        }
     }
 }
 
@@ -31,15 +35,10 @@ impl From<WireMessage> for tungstenite::Message {
 impl From<tungstenite::Message> for WireMessage {
     fn from(message: tungstenite::Message) -> Self {
         match message {
-            tungstenite::Message::Text(text) => {
-                println!("Received text: {}", text);
-            }
-            tungstenite::Message::Binary(_) => {
-                println!("Received some binary");
-            }
-            _ => {}
+            tungstenite::Message::Ping(bytes) => WireMessage::Ping(bytes),
+            tungstenite::Message::Pong(bytes) => WireMessage::Pong(bytes),
+            _ => WireMessage::Empty,
         }
-        WireMessage::Empty
     }
 }
 
