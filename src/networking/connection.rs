@@ -1,4 +1,5 @@
 use futures::{Sink, SinkExt, Stream, StreamExt};
+use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
@@ -28,6 +29,7 @@ impl core::fmt::Display for Protocol {
 /// It will ultimately be wrapped by the protocol that transmits the message,
 /// but at the CC abstraction layer, this is as low as it gets.
 ///
+#[derive(Serialize, Deserialize)]
 pub(crate) enum WireMessage {
     Empty,
     Ping(Vec<u8>),
@@ -68,7 +70,7 @@ pub(crate) async fn handle_connection<TMessage, TError, TSink, TStream>(
 where
     TMessage: Into<WireMessage> + From<WireMessage> + Send,
     TError: Into<Error>,
-    TSink: Sink<TMessage, Error = TError> + Unpin + Send + Sync + 'static,
+    TSink: Sink<TMessage, Error = TError> + Send + Sync + Unpin + 'static,
     TStream: Stream<Item = Result<TMessage, TError>> + Send + Unpin,
 {
     // create channel for responses to be sent through

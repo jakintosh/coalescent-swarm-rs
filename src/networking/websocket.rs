@@ -26,7 +26,12 @@ impl From<WireMessage> for tungstenite::Message {
         match wire_message {
             WireMessage::Ping(bytes) => tungstenite::Message::Ping(bytes),
             WireMessage::Pong(bytes) => tungstenite::Message::Pong(bytes),
-            _ => tungstenite::Message::Text(String::from("message")),
+            _ => {
+                let bytes = rmp_serde::to_vec_named(&wire_message)
+                    .expect("websocket::From<WireMessage> serialization failure");
+
+                tungstenite::Message::Binary(bytes)
+            }
         }
     }
 }
@@ -35,6 +40,9 @@ impl From<WireMessage> for tungstenite::Message {
 impl From<tungstenite::Message> for WireMessage {
     fn from(message: tungstenite::Message) -> Self {
         match message {
+            tungstenite::Message::Binary(bytes) => {
+                rmp_serde::from_read_ref(&bytes).expect("deserialize fail")
+            }
             tungstenite::Message::Ping(bytes) => WireMessage::Ping(bytes),
             tungstenite::Message::Pong(bytes) => WireMessage::Pong(bytes),
             _ => WireMessage::Empty,
@@ -75,7 +83,7 @@ pub async fn connect(address: SocketAddr) -> Result<(), connection::Error> {
     let receive_task = tokio::spawn(connection::handle_messages(message_rx));
     match futures::try_join!(receive_task, connection_task) {
         Ok(_) => {}
-        Err(conn_error) => println!("websocket::Client::connect error {:?}", conn_error),
+        Err(conn_error) => println!("websocket::connect error {:?}", conn_error),
     };
 
     Ok(())
@@ -109,7 +117,7 @@ pub async fn listen(address: SocketAddr) -> Result<(), connection::Error> {
     let receive_task = tokio::spawn(connection::handle_messages(message_rx));
     match futures::try_join!(listen_task, receive_task) {
         Ok(_) => {}
-        Err(conn_error) => println!("websocket::Server::listen error {:?}", conn_error),
+        Err(conn_error) => println!("websocket::listen error {:?}", conn_error),
     };
 
     Ok(())
@@ -148,4 +156,39 @@ async fn accept_connections(
         });
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+
+    use crate::networking::connection::WireMessage;
+    use tokio_tungstenite::tungstenite::Message;
+
+    #[test]
+    fn wire_message_to_ws() {
+        let bytes = vec![0x0, 0x1, 0x2, 0x3];
+        let wire_message = WireMessage::Ping(bytes.clone());
+        let message: Message = wire_message.into();
+        match message {
+            Message::Ping(message_bytes) => {
+                assert_eq!(bytes, message_bytes);
+                return;
+            }
+            _ => assert!(false),
+        };
+    }
+
+    #[test]
+    fn ws_message_to_wire() {
+        let bytes = vec![0x0, 0x1, 0x2, 0x3];
+        let message = Message::Ping(bytes.clone());
+        let wire_message: WireMessage = message.into();
+        match wire_message {
+            WireMessage::Ping(message_bytes) => {
+                assert_eq!(bytes, message_bytes);
+                return;
+            }
+            _ => assert!(false),
+        };
+    }
 }
