@@ -1,15 +1,11 @@
-#![allow(dead_code)]
-
-mod hash_id;
-mod identity;
-mod kademlia;
-mod networking;
-
+use coalescent_swarm::networking;
 use std::net::SocketAddr;
 use tokio::task::JoinHandle;
 
 #[tokio::main]
 async fn main() {
+    // if let Some(arg1) = std::env::args().nth(1) {}
+
     tokio::select! {
         _ = start_local_ipc_server() => {
             println!("local IPC server failed, app exiting")

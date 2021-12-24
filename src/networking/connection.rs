@@ -5,20 +5,20 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-pub(crate) type Response = WireMessage;
-pub(crate) type ResponseTx = UnboundedSender<Response>;
-pub(crate) type ResponseRx = UnboundedReceiver<Response>;
+pub type Response = WireMessage;
+pub type ResponseTx = UnboundedSender<Response>;
+pub type ResponseRx = UnboundedReceiver<Response>;
 
-pub(crate) type Request = (WireMessage, ResponseTx);
-pub(crate) type RequestTx = UnboundedSender<Request>;
-pub(crate) type RequestRx = UnboundedReceiver<Request>;
+pub type Request = (WireMessage, ResponseTx);
+pub type RequestTx = UnboundedSender<Request>;
+pub type RequestRx = UnboundedReceiver<Request>;
 
 // ===== enum connection::Protocol ============================================
 ///
 /// Defines the implemented networking protocols that are available to use.
 ///
 #[derive(Clone, Copy)]
-pub(crate) enum Protocol {
+pub enum Protocol {
     WebSocket,
 }
 impl core::fmt::Display for Protocol {
@@ -37,7 +37,7 @@ impl core::fmt::Display for Protocol {
 /// but at the c-swarm abstraction layer, this is as low as it gets.
 ///
 #[derive(Serialize, Deserialize)]
-pub(crate) enum WireMessage {
+pub enum WireMessage {
     Ping(Vec<u8>),
     Pong(Vec<u8>),
     ApiCall { function: String, data: Vec<u8> },
@@ -47,13 +47,13 @@ pub(crate) enum WireMessage {
 /// ===== enum connection::Error ==============================================
 ///
 #[derive(Debug)]
-pub(crate) enum Error {
+pub enum Error {
     ProtocolError,
 }
 
 /// ===== struct connection::Connection =======================================
 ///
-pub(crate) struct Connection<TMessage, TError>
+pub struct Connection<TMessage, TError>
 where
     TMessage: Into<WireMessage> + From<WireMessage>,
     TError: Into<Error>,
@@ -66,7 +66,7 @@ where
 ///
 /// listen on a socket using websocket protocol
 ///
-pub(crate) async fn listen_ws(address: SocketAddr) -> Result<(), Error> {
+pub async fn listen_ws(address: SocketAddr) -> Result<(), Error> {
     let (connection_tx, connection_rx) = mpsc::unbounded_channel();
     tokio::spawn(websocket::listen(address, connection_tx));
     match handle_connections(connection_rx).await {
@@ -79,7 +79,7 @@ pub(crate) async fn listen_ws(address: SocketAddr) -> Result<(), Error> {
 ///
 /// connect to a socket using websocket protocol
 ///
-pub(crate) async fn connect_ws(address: SocketAddr) -> Result<(), Error> {
+pub async fn connect_ws(address: SocketAddr) -> Result<(), Error> {
     let connection = match websocket::connect(address).await {
         Ok(conn) => conn,
         Err(_) => return Err(Error::ProtocolError),
