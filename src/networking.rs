@@ -1,5 +1,7 @@
-pub(crate) mod connection;
-pub(crate) mod websocket;
+mod connection;
+
+// pub(crate) use crate::networking::connection::connect_ws;
+pub(crate) use crate::networking::connection::listen_ws;
 
 use std::net::{IpAddr, SocketAddr};
 

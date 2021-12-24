@@ -1,10 +1,17 @@
-use futures::{Sink, SinkExt, Stream, StreamExt};
+mod websocket;
+
+use futures::{pin_mut, Sink, SinkExt, Stream, StreamExt};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
 
-pub(crate) type MessageTx = UnboundedSender<(WireMessage, UnboundedSender<WireMessage>)>;
-pub(crate) type MessageRx = UnboundedReceiver<(WireMessage, UnboundedSender<WireMessage>)>;
+pub(crate) type Response = WireMessage;
+pub(crate) type ResponseTx = UnboundedSender<Response>;
+pub(crate) type ResponseRx = UnboundedReceiver<Response>;
+
+pub(crate) type Request = (WireMessage, ResponseTx);
+pub(crate) type RequestTx = UnboundedSender<Request>;
+pub(crate) type RequestRx = UnboundedReceiver<Request>;
 
 // ===== enum connection::Protocol ============================================
 ///
@@ -25,116 +32,172 @@ impl core::fmt::Display for Protocol {
 
 // ===== enum connection::WireMessage =========================================
 ///
-/// This is the raw coalescent-computer message that we send across the wire.
+/// This is the raw coalescent-swarm message that we send across the wire.
 /// It will ultimately be wrapped by the protocol that transmits the message,
-/// but at the CC abstraction layer, this is as low as it gets.
+/// but at the c-swarm abstraction layer, this is as low as it gets.
 ///
 #[derive(Serialize, Deserialize)]
 pub(crate) enum WireMessage {
-    Empty,
     Ping(Vec<u8>),
     Pong(Vec<u8>),
+    ApiCall { function: String, data: Vec<u8> },
+    Empty,
 }
 
-/// ===== enum connection::Error ===============================================
+/// ===== enum connection::Error ==============================================
 ///
 #[derive(Debug)]
-pub enum Error {
+pub(crate) enum Error {
     ProtocolError,
 }
 
-/// ===== struct connection::Connection ========================================
+/// ===== struct connection::Connection =======================================
 ///
-pub(crate) struct Connection<TMessage, TError, TSink, TStream>
+pub(crate) struct Connection<TMessage, TError>
 where
     TMessage: Into<WireMessage> + From<WireMessage>,
     TError: Into<Error>,
-    TSink: Sink<TMessage, Error = TError>,
-    TStream: Stream<Item = Result<TMessage, TError>>,
 {
-    pub protocol: Protocol,
-    pub address: SocketAddr,
-    pub sink: TSink,
-    pub stream: TStream,
-    pub message_tx: MessageTx,
+    sink: Box<dyn Sink<TMessage, Error = TError> + Send + Unpin>,
+    stream: Box<dyn Stream<Item = Result<TMessage, TError>> + Send + Unpin>,
 }
 
-/// ===== async fn handle_connection(connection: Connection) ==================
+/// ===== fn listen_ws(address) ===============================================
 ///
-/// Takes ownership of a Connection struct and initiates tokio tasks to read
-/// and process messages from the stream, as well as send messages to the sink.
+/// listen on a socket using websocket protocol
 ///
-pub(crate) async fn handle_connection<TMessage, TError, TSink, TStream>(
-    connection: Connection<TMessage, TError, TSink, TStream>,
-) -> Result<(), Error>
-where
-    TMessage: Into<WireMessage> + From<WireMessage> + Send,
-    TError: Into<Error>,
-    TSink: Sink<TMessage, Error = TError> + Send + Sync + Unpin + 'static,
-    TStream: Stream<Item = Result<TMessage, TError>> + Send + Unpin,
-{
-    // create channel for responses to be sent through
-    let (response_tx, mut response_rx) = mpsc::unbounded_channel::<WireMessage>();
-
-    // begin a task for handling responses
-    let mut sink = connection.sink; // move `sink` into a mutable owner
-    tokio::spawn(async move {
-        while let Some(response) = response_rx.recv().await {
-            let protocol_message = response.into();
-            match sink.send(protocol_message).await {
-                Ok(()) => {}
-                Err(_) => {}
-            };
-            println!(
-                "{}{} response sent",
-                connection.protocol, connection.address
-            );
-        }
-    });
-
-    // read incoming connection messages and send to message handler until the stream closes
-    let mut stream = connection.stream; // move stream into mutable owner
-    while let Some(protocol_message) = stream.next().await {
-        println!("{}{} request recd", connection.protocol, connection.address);
-
-        // convert protocol message into wire message
-        let wire_message = match protocol_message {
-            Ok(protocol_message) => protocol_message.into(),
-            Err(err) => return Err(err.into()),
-        };
-
-        // send request to message handler with response channel
-        if let Err(_send_error) = connection
-            .message_tx
-            .send((wire_message, response_tx.clone()))
-        {
-            println!("cannot process request, request_rx handler channel is closed");
-        }
+pub(crate) async fn listen_ws(address: SocketAddr) -> Result<(), Error> {
+    let (connection_tx, connection_rx) = mpsc::unbounded_channel();
+    tokio::spawn(websocket::listen(address, connection_tx));
+    match handle_connections(connection_rx).await {
+        Ok(_) => Ok(()),
+        Err(_) => Err(Error::ProtocolError),
     }
+}
 
-    // other side closed the websocket connection
-    println!("{}{} closed", connection.protocol, connection.address);
+/// ===== fn connect_ws(address) ==============================================
+///
+/// connect to a socket using websocket protocol
+///
+pub(crate) async fn connect_ws(address: SocketAddr) -> Result<(), Error> {
+    let connection = match websocket::connect(address).await {
+        Ok(conn) => conn,
+        Err(_) => return Err(Error::ProtocolError),
+    };
+    handle_connection(connection).await;
 
     Ok(())
 }
 
-/// ===== async fn handle_messages(message_rx: MessageRx) ==================
+/// ===== fn handle_connections(connection_rx) ================================
 ///
-/// Takes ownership of a message receiver, and processes those messages as
-/// they come in. Can spawn a new work task based on the message, and can
+/// takes a connection receiver, receives those connections until that channel
+/// closes, and spawns a connection message processing task stack for each
+/// connection that comes though. this should naturally close once the
+/// websocket connection is closed, which should be announced by the
+/// connection_rx channel being closed.
+///
+async fn handle_connections<TMessage, TError>(
+    mut connection_rx: UnboundedReceiver<Connection<TMessage, TError>>,
+) -> Result<(), Error>
+where
+    TMessage: Into<WireMessage> + From<WireMessage> + Send + Unpin + 'static,
+    TError: Into<Error> + Send + Unpin + 'static,
+{
+    while let Some(connection) = connection_rx.recv().await {
+        tokio::spawn(handle_connection(connection));
+    }
+
+    // connection channel closed gracefully
+    Ok(())
+}
+
+/// ===== fn handle_connection(connection) ====================================
+///
+/// takes ownership of a connection struct, and spawns tasks that handle
+/// receiving messages from peers, processing messages, and sending responses
+/// to peers.
+///
+async fn handle_connection<TMessage, TError>(connection: Connection<TMessage, TError>)
+where
+    TMessage: Into<WireMessage> + From<WireMessage> + Send + Unpin + 'static,
+    TError: Into<Error> + Send + Unpin + 'static,
+{
+    let sink = connection.sink;
+    let stream = connection.stream;
+    let (request_tx, request_rx) = mpsc::unbounded_channel();
+    let (response_tx, response_rx) = mpsc::unbounded_channel();
+    let receive_messages = tokio::spawn(handle_raw_messages(stream, request_tx, response_tx));
+    let process_messages = tokio::spawn(handle_wire_messages(request_rx));
+    let send_messages = tokio::spawn(handle_responses(sink, response_rx));
+
+    // wait to see what happens to handlers
+    match tokio::try_join!(receive_messages, process_messages, send_messages) {
+        Ok((receive, process, send)) => {
+            if let Err(_) = receive {
+                // receive error
+            }
+            if let Err(_) = process {
+                // process error
+            }
+            if let Err(_) = send {
+                // send error
+            }
+        }
+        Err(_) => {
+            // join error
+        }
+    };
+}
+
+async fn handle_raw_messages<TMessage, TError>(
+    stream: impl Stream<Item = Result<TMessage, TError>>,
+    request_tx: RequestTx,
+    response_tx: ResponseTx,
+) -> Result<(), Error>
+where
+    TMessage: Into<WireMessage> + From<WireMessage>,
+    TError: Into<Error>,
+{
+    pin_mut!(stream);
+    while let Some(protocol_message) = stream.next().await {
+        let wire_message = match protocol_message {
+            Ok(protocol_message) => protocol_message.into(),
+            Err(err) => return Err(err.into()),
+        };
+        if let Err(_send_error) = request_tx.send((wire_message, response_tx.clone())) {
+            println!("cannot process request, request_rx handler channel is closed");
+        }
+    }
+
+    // connection stream closed gracefully
+    Ok(())
+}
+
+/// ===== async fn handle_wire_messages(request_rx: RequestRx) ==================
+///
+/// Takes ownership of a request receiver, and processes those requests as
+/// they come in. Can spawn a new work task based on the request, and can
 /// also potentially generate a response to return to the sender.
 ///
-pub(crate) async fn handle_messages(mut message_rx: MessageRx) -> Result<(), Error> {
-    while let Some(message) = message_rx.recv().await {
-        let response = match message.0 {
+async fn handle_wire_messages(mut request_rx: RequestRx) -> Result<(), Error> {
+    while let Some(request) = request_rx.recv().await {
+        let (wire_message, response_tx) = request;
+
+        if let Some(response) = match wire_message {
+            WireMessage::ApiCall { function, data } => {
+                println!(
+                    "WireMessage::ApiCall(fn: {}, input_bytes: {})",
+                    function,
+                    data.len()
+                );
+                None
+            }
             WireMessage::Ping(bytes) => Some(WireMessage::Pong(bytes)),
             WireMessage::Pong(_) => None,
             WireMessage::Empty => None,
-        };
-
-        // if response exists, pass back response, handle error
-        if let Some(response) = response {
-            if let Err(err) = message.1.send(response) {
+        } {
+            if let Err(err) = response_tx.send(response) {
                 println!(
                     "dropped response, response_rx channel was closed. {}",
                     err.to_string()
@@ -143,6 +206,28 @@ pub(crate) async fn handle_messages(mut message_rx: MessageRx) -> Result<(), Err
         }
     }
 
-    // transmit channels all closed gracefully
+    // request channel closed gracefully
+    Ok(())
+}
+
+async fn handle_responses<TMessage, TError>(
+    sink: impl Sink<TMessage, Error = TError>,
+    response_rx: ResponseRx,
+) -> Result<(), Error>
+where
+    TMessage: Into<WireMessage> + From<WireMessage>,
+    TError: Into<Error>,
+{
+    pin_mut!(sink, response_rx);
+    while let Some(response) = response_rx.recv().await {
+        match sink.send(response.into()).await {
+            Ok(()) => {}
+            Err(_) => {
+                // sink err?
+            }
+        };
+    }
+
+    // response channel closed gracefully
     Ok(())
 }
