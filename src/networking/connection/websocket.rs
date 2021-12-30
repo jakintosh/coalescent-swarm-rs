@@ -64,18 +64,19 @@ pub(crate) async fn listen(
     };
     println!("ws:// listening on: {}", address.to_string());
 
-    while let Ok((tcp_stream, address)) = tcp_listener.accept().await {
+    while let Ok((tcp_stream, peer_address)) = tcp_listener.accept().await {
         let websocket = match tokio_tungstenite::accept_async(tcp_stream).await {
             Ok(ws) => ws,
             Err(_) => {
-                println!("ws://{} connection failed ", address);
+                println!("ws://{} connection failed ", peer_address);
                 continue;
             }
         };
-        println!("ws:// opened with: {}", address);
+        println!("ws:// opened with: {}", peer_address);
 
         let (ws_sink, ws_stream) = websocket.split();
         let connection = Connection {
+            uid: peer_address.to_string(),
             sink: Box::new(ws_sink),
             stream: Box::new(ws_stream),
         };
@@ -104,6 +105,7 @@ pub(crate) async fn connect(
     };
     let (ws_sink, ws_stream) = websocket.split();
     let connection = Connection {
+        uid: address.to_string(),
         sink: Box::new(ws_sink),
         stream: Box::new(ws_stream),
     };

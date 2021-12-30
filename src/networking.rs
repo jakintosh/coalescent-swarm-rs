@@ -1,7 +1,8 @@
 mod connection;
 
-// pub(crate) use crate::networking::connection::connect_ws;
-pub use crate::networking::connection::listen_ws;
+pub use crate::networking::connection::{
+    connect_ws, listen_ws, Connection, ConnectionHandle, WireMessage,
+};
 
 use std::net::{IpAddr, SocketAddr};
 
