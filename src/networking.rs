@@ -1,12 +1,14 @@
-mod connection;
+use crate::data::HashId;
+// public interface
+//
+pub use crate::networking::connection::{connect_ws, listen_ws, Connection, ConnectionHandle};
 
-pub use crate::networking::connection::{
-    connect_ws, listen_ws, Connection, ConnectionHandle, WireMessage,
-};
+mod connection;
 
 use std::net::{IpAddr, SocketAddr};
 
 pub struct Interface;
+
 impl Interface {
     pub fn get_public_socket() -> Option<SocketAddr> {
         None
@@ -17,4 +19,9 @@ impl Interface {
             Err(_) => None,
         }
     }
+}
+
+pub struct PeerInfo {
+    pub agent_id: HashId,
+    pub socket_addr: SocketAddr,
 }

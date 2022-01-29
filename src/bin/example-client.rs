@@ -1,3 +1,4 @@
+use coalescent_swarm::messaging;
 use coalescent_swarm::networking;
 use std::net::SocketAddr;
 
@@ -7,7 +8,7 @@ async fn main() {
     let ipc_server_ip = [127, 0, 0, 1];
     let ipc_server_port = 5000;
     let ipc_server_address = SocketAddr::from((ipc_server_ip, ipc_server_port));
-    let handle = match networking::connect_ws(ipc_server_address).await {
+    let connection_handle = match networking::connect_ws(ipc_server_address).await {
         Ok(handle) => {
             println!("new connection with uid: {:?}", handle.uid);
             handle
@@ -19,11 +20,11 @@ async fn main() {
     };
 
     // send some commands to test how it works
-    let request = networking::WireMessage::ApiCall {
+    let request = messaging::WireMessage::ApiCall {
         function: "test".to_owned(),
         data: vec![0u8, 0u8, 0u8, 0u8],
     };
-    match handle.send(request) {
+    match connection_handle.send(request) {
         Ok(_) => {
             println!("message sent successfully")
         }

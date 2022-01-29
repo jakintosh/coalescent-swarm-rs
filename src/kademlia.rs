@@ -1,6 +1,12 @@
-use crate::hash_id::HashId;
-use crate::identity::PeerInfo;
+use crate::data::HashId;
+
 use std::collections::HashMap;
+
+#[derive(PartialEq, Copy, Clone)]
+pub struct PeerInfo {
+    pub address: std::net::SocketAddr,
+    pub node_id: HashId,
+}
 
 pub enum Message {
     Ping(PeerInfo),
@@ -46,7 +52,7 @@ impl DHT {
                     // add unknown node to most recently seen
                     k_bucket.push(peer_info.clone());
                 } else {
-                    let eviction_candidate = k_bucket.first().unwrap();
+                    // let eviction_candidate = k_bucket.first().unwrap();
                     // ping eviction candidate
                     // if responds, keep and bump to end
                     // if no response, evict and add new peer to end

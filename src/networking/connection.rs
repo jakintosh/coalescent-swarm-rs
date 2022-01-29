@@ -1,7 +1,9 @@
+mod udp;
 mod websocket;
 
+use crate::messaging::WireMessage;
+
 use futures::{pin_mut, Sink, SinkExt, Stream, StreamExt};
-use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use tokio::sync::{mpsc, oneshot};
 
@@ -32,20 +34,6 @@ impl core::fmt::Display for Protocol {
         };
         write!(f, "{}", protocol_string)
     }
-}
-
-// ===== enum connection::WireMessage =========================================
-///
-/// This is the raw coalescent-swarm message that we send across the wire.
-/// It will ultimately be wrapped by the protocol that transmits the message,
-/// but at the c-swarm abstraction layer, this is as low as it gets.
-///
-#[derive(Serialize, Deserialize)]
-pub enum WireMessage {
-    Ping(Vec<u8>),
-    Pong(Vec<u8>),
-    ApiCall { function: String, data: Vec<u8> },
-    Empty,
 }
 
 /// ===== enum connection::Error ==============================================
@@ -87,11 +75,20 @@ impl ConnectionHandle {
 pub async fn listen_ws(address: SocketAddr) -> Result<(), Error> {
     let (connection_tx, connection_rx) = mpsc::unbounded_channel();
     tokio::spawn(websocket::listen(address, connection_tx));
-    match handle_connections(connection_rx).await {
+    match handle_stream_connections(connection_rx).await {
         Ok(_) => Ok(()),
         Err(_) => Err(Error::ProtocolError),
     }
 }
+
+// pub async fn listen_udp(address: SocketAddr) -> Result<(), Error> {
+//     let (connection_tx, connection_rx) = mpsc::unbounded_channel();
+//     tokio::spawn(udp::listen(address));
+//     match handle_stream_connections(connection_rx).await {
+//         Ok(_) => Ok(()),
+//         Err(_) => Err(Error::ProtocolError),
+//     }
+// }
 
 /// ===== fn connect_ws(address) ==============================================
 ///
@@ -106,7 +103,7 @@ pub async fn connect_ws(address: SocketAddr) -> Result<ConnectionHandle, Error> 
 
     // init the connection, and have a channel to pass back the handle
     let (handle_tx, handle_rx) = oneshot::channel();
-    tokio::spawn(handle_connection(connection, Some(handle_tx)));
+    tokio::spawn(handle_stream_connection(connection, Some(handle_tx)));
 
     match handle_rx.await {
         Ok(handle) => Ok(handle),
@@ -114,7 +111,7 @@ pub async fn connect_ws(address: SocketAddr) -> Result<ConnectionHandle, Error> 
     }
 }
 
-/// ===== fn handle_connections(connection_rx) ================================
+/// ===== fn handle_stream_connections(connection_rx) =========================
 ///
 /// takes a connection receiver, receives those connections until that channel
 /// closes, and spawns a connection message processing task stack for each
@@ -122,7 +119,7 @@ pub async fn connect_ws(address: SocketAddr) -> Result<ConnectionHandle, Error> 
 /// websocket connection is closed, which should be announced by the
 /// connection_rx channel being closed.
 ///
-async fn handle_connections<TMessage, TError>(
+async fn handle_stream_connections<TMessage, TError>(
     mut connection_rx: mpsc::UnboundedReceiver<Connection<TMessage, TError>>,
 ) -> Result<(), Error>
 where
@@ -130,20 +127,20 @@ where
     TError: Into<Error> + Send + Unpin + 'static,
 {
     while let Some(connection) = connection_rx.recv().await {
-        tokio::spawn(handle_connection(connection, None));
+        tokio::spawn(handle_stream_connection(connection, None));
     }
 
     // connection channel closed gracefully
     Ok(())
 }
 
-/// ===== fn handle_connection(connection) ====================================
+/// ===== fn handle_stream_connection(connection) =============================
 ///
 /// takes ownership of a connection struct, and spawns tasks that handle
 /// receiving messages from peers, processing messages, and sending responses
 /// to peers.
 ///
-async fn handle_connection<TMessage, TError>(
+async fn handle_stream_connection<TMessage, TError>(
     connection: Connection<TMessage, TError>,
     handle_tx: Option<HandleSender>,
 ) where
@@ -154,23 +151,23 @@ async fn handle_connection<TMessage, TError>(
     let stream = connection.stream;
     let (incoming_tx, incoming_rx) = mpsc::unbounded_channel();
     let (outgoing_tx, outgoing_rx) = mpsc::unbounded_channel();
-    let receive_messages = tokio::spawn(handle_incoming(stream, incoming_tx, outgoing_tx.clone()));
-    let process_messages = tokio::spawn(process_wire_messages(incoming_rx));
-    let send_messages = tokio::spawn(handle_outgoing(sink, outgoing_rx));
+    let recv_msg_task = tokio::spawn(handle_incoming(stream, incoming_tx, outgoing_tx.clone()));
+    let proc_msg_task = tokio::spawn(process_wire_messages(incoming_rx));
+    let resp_msg_task = tokio::spawn(handle_outgoing(sink, outgoing_rx));
 
-    // get send-handle and return
-    let handle = ConnectionHandle {
+    // get connection-handle and return
+    let connection_handle = ConnectionHandle {
         uid: connection.uid,
         outbound_tx: outgoing_tx,
     };
     if let Some(tx) = handle_tx {
-        if let Err(_) = tx.send(handle) {
+        if let Err(_) = tx.send(connection_handle) {
             // todo: bad send?
         }
     }
 
     // wait to see what happens to handlers
-    match tokio::try_join!(receive_messages, process_messages, send_messages) {
+    match tokio::try_join!(recv_msg_task, proc_msg_task, resp_msg_task) {
         Ok((receive, process, send)) => {
             if let Err(_) = receive {
                 // receive error
@@ -233,6 +230,8 @@ async fn process_wire_messages(mut incoming_rx: RequestRx) -> Result<(), Error> 
             }
             WireMessage::Ping(bytes) => Some(WireMessage::Pong(bytes)),
             WireMessage::Pong(_) => None,
+            WireMessage::RequestConnection => None,
+            WireMessage::CloseConnection => None,
             WireMessage::Empty => None,
         } {
             if let Err(err) = response_tx.send(response) {

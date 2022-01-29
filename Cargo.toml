@@ -3,8 +3,6 @@ name = "coalescent-swarm"
 version = "0.1.0"
 edition = "2021"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
-
 [[bin]]
 name = "daemon"
 path = "src/bin/daemon.rs"
@@ -14,6 +12,7 @@ name = "example-client"
 path = "src/bin/example-client.rs"
 
 [dependencies]
+blake2s_simd = "1.0.0"
 futures = "0.3"
 local-ip-address = "0.4"
 rmp-serde = "*"

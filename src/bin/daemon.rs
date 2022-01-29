@@ -10,8 +10,11 @@ async fn main() {
         _ = start_local_ipc_server() => {
             println!("local IPC server failed, app exiting")
         },
-        _= start_peer_server() => {
+        _ = start_peer_server() => {
             println!("peer server failed, app exiting")
+        },
+        _ = start_peer_udp_server() => {
+            println!("peer udp server failed, app exiting")
         }
     }
 }
@@ -44,5 +47,21 @@ fn start_peer_server() -> JoinHandle<()> {
                 _ => break, // no errors are recoverable
             }
         }
+    })
+}
+
+fn start_peer_udp_server() -> JoinHandle<()> {
+    tokio::spawn(async move {
+        // let peer_server_ip = networking::Interface::get_local_ip_address()
+        //     .expect("fatal error: couldn't resolve local ip address; app cannot run.");
+        // let peer_server_port = 18300;
+        // let peer_server_address = SocketAddr::from((peer_server_ip, peer_server_port));
+
+        // await exit of server, handle recoverable errors, restart if possible
+        // while let Err(error) = networking::listen_udp(peer_server_address).await {
+        //     match error {
+        //         _ => break, // no errors are recoverable
+        //     }
+        // }
     })
 }

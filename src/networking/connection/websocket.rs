@@ -15,7 +15,8 @@ use tokio_tungstenite::{
     tungstenite::{Error as TungError, Message as TungMessage},
 };
 
-use crate::networking::connection::{self, Connection, WireMessage};
+use crate::messaging::WireMessage;
+use crate::networking::connection::{self, Connection};
 
 /// convert tungstenite websocket error to connection error
 impl From<TungError> for connection::Error {
@@ -44,9 +45,8 @@ impl From<WireMessage> for TungMessage {
 impl From<TungMessage> for WireMessage {
     fn from(message: TungMessage) -> Self {
         match message {
-            TungMessage::Binary(bytes) => {
-                rmp_serde::from_read_ref(&bytes).expect("deserialize fail")
-            }
+            TungMessage::Binary(bytes) => rmp_serde::from_read_ref(&bytes)
+                .expect("websocket::From<WireMessage> deserialization failure"),
             TungMessage::Ping(bytes) => WireMessage::Ping(bytes),
             TungMessage::Pong(bytes) => WireMessage::Pong(bytes),
             _ => WireMessage::Empty,
