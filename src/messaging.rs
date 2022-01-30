@@ -1,6 +1,6 @@
-// use std::net::SocketAddr;
-
 use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
+use tokio::sync::mpsc;
 
 // ===== enum messaging::WireMessage =========================================
 ///
@@ -16,6 +16,39 @@ pub enum WireMessage {
     CloseConnection,
     ApiCall { function: String, data: Vec<u8> },
     Empty,
+}
+
+pub type WireTx = mpsc::UnboundedSender<(SocketAddr, WireProtocol)>;
+pub type WireRx = mpsc::UnboundedReceiver<(SocketAddr, WireProtocol)>;
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum WireProtocol {
+    RequestConnection,
+    CloseConnection,
+}
+
+pub struct MessageQueue {
+    pub message_tx: WireTx,
+    message_rx: WireRx,
+}
+
+impl MessageQueue {
+    pub fn new() -> MessageQueue {
+        let (tx, rx) = mpsc::unbounded_channel();
+        MessageQueue {
+            message_tx: tx,
+            message_rx: rx,
+        }
+    }
+
+    pub async fn listen(&mut self) {
+        while let Some((addr, wire_msg)) = self.message_rx.recv().await {
+            println!(
+                "Recieved a wire protocol packet from {}:\n{:?}",
+                addr, wire_msg
+            );
+        }
+    }
 }
 
 // /// recv msg
