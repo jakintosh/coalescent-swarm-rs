@@ -1,7 +1,9 @@
 use super::{Identity, Persona};
 use crate::data::HashId;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Agent {
     pub id: HashId,
     pub identity: Identity,

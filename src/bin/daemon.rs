@@ -2,7 +2,7 @@ use coalescent_swarm::{
     messaging::{MessageQueue, WireTx},
     networking,
 };
-use std::net::{self, SocketAddr};
+use std::net::SocketAddr;
 use tokio::task::JoinHandle;
 
 #[tokio::main]

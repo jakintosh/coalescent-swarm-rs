@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 use tokio::sync::mpsc;
 
+use crate::{data::HashId, identity::Agent};
+
 // ===== enum messaging::WireMessage =========================================
 ///
 /// This is the raw coalescent-swarm message that we send across the wire.
@@ -22,9 +24,16 @@ pub type WireTx = mpsc::UnboundedSender<(SocketAddr, WireProtocol)>;
 pub type WireRx = mpsc::UnboundedReceiver<(SocketAddr, WireProtocol)>;
 
 #[derive(Serialize, Deserialize, Debug)]
-pub enum WireProtocol {
-    RequestConnection,
+pub struct WireProtocol {
+    pub msg: ProtocolMessage,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub enum ProtocolMessage {
+    RequestConnection { agent_id: HashId },
     CloseConnection,
+    RequestIdentity,
+    ShareIdentity { agent: Agent },
 }
 
 pub struct MessageQueue {
@@ -43,13 +52,7 @@ impl MessageQueue {
 
     pub async fn listen(&mut self) {
         while let Some((addr, wire_msg)) = self.message_rx.recv().await {
-            println!(
-                "Recieved a wire protocol packet from {}:\n{:?}",
-                addr, wire_msg
-            );
+            println!("  recv() from {} -> {:?}", addr, wire_msg);
         }
     }
 }
-
-// /// recv msg
-// fn receive_message(from: SocketAddr, message: WireMessage) {}

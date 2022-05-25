@@ -1,13 +1,14 @@
-// public interface
-//
+#![allow(unused_variables)]
 pub use agent::Agent;
 pub use persona::Persona;
+use serde::{Deserialize, Serialize};
 
 mod agent;
 mod persona;
 
 use crate::data::HashId;
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct KeyPair {
     pub public_key: HashId,
     private_key: HashId,
@@ -40,6 +41,7 @@ impl KeyPair {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, Debug)]
 pub struct Identity {
     pub encryption_keys: KeyPair,
     pub signing_keys: KeyPair,

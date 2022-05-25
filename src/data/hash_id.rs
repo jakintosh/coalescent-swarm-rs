@@ -1,7 +1,18 @@
-use std::ops::BitXor;
+use std::{fmt::Debug, ops::BitXor};
 
-#[derive(PartialEq, Clone, Copy)]
+use base64ct::{Base64Url, Encoding};
+use serde::{Deserialize, Serialize};
+
+#[derive(PartialEq, Clone, Copy, Serialize, Deserialize)]
 pub struct HashId(pub [u8; 32]);
+
+impl Debug for HashId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_tuple("HashId")
+            .field(&Base64Url::encode_string(&self.0))
+            .finish()
+    }
+}
 
 impl BitXor for HashId {
     type Output = [u8; 32];

@@ -1,5 +1,5 @@
-use coalescent_swarm::messaging;
-use coalescent_swarm::messaging::WireProtocol;
+use coalescent_swarm::identity::Agent;
+use coalescent_swarm::messaging::{self, ProtocolMessage, WireProtocol};
 use coalescent_swarm::networking;
 use std::net::SocketAddr;
 
@@ -17,15 +17,16 @@ async fn main() {
     let mut listener_node = node.clone();
     let sender_node = node;
 
-    let net_handle = tokio::spawn(async move { listener_node.listen().await });
-    let msg_handle = tokio::spawn(async move { message_queue.listen().await });
+    let (agent, _persona) = Agent::create_with_new_persona();
 
     let dest = SocketAddr::from((peer_node_ip, 18350));
-    let snd_handle = tokio::spawn(async move {
-        sender_node
-            .send(dest, WireProtocol::RequestConnection)
-            .await
-    });
+    let msg = WireProtocol {
+        msg: ProtocolMessage::RequestConnection { agent_id: agent.id },
+    };
+
+    let net_handle = tokio::spawn(async move { listener_node.listen().await });
+    let msg_handle = tokio::spawn(async move { message_queue.listen().await });
+    let snd_handle = tokio::spawn(async move { sender_node.send(dest, msg).await });
 
     tokio::select! {
         _ = net_handle => {},
